@@ -32,6 +32,8 @@ func main() {
 
 func registerSubCommands(sugar *zap.SugaredLogger) []core.CommandInterface {
 	// TODO: Allow users to add their own custom commands.
+	// This can be done by GO plugins
+	// https://medium.com/learning-the-go-programming-language/writing-modular-go-programs-with-plugins-ec46381ee1a9
 	commands := make([]core.CommandInterface, 0)
 	commands = append(commands, scheduler.NewCommand(), server.NewCommand())
 	return commands

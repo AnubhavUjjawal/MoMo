@@ -49,12 +49,12 @@ func (sch *Scheduler) parseDags(dagsDir string) {
 	sch.logger.Infow("Parsing dags at", "path", dagsDir)
 }
 
-type SchedulerCommand struct {
+type schedulerCommand struct {
 	core.Command
 }
 
 // RunCommand parses the flags starts the Scheduler.
-func (sch *SchedulerCommand) RunCommand(logger *zap.SugaredLogger) error {
+func (sch *schedulerCommand) RunCommand(logger *zap.SugaredLogger) error {
 	// TODO: parse flags before starting scheduler
 	logger.Infow("Starting Scheduler")
 
@@ -65,9 +65,9 @@ func (sch *SchedulerCommand) RunCommand(logger *zap.SugaredLogger) error {
 	return nil
 }
 
-// NewCommand creates and returns an instance of schedulerCommand.
-func NewCommand() *SchedulerCommand {
+// NewCommand creates and returns an instance of SchedulerCommand.
+func NewCommand() *schedulerCommand {
 	commandString := "scheduler"
 	flagset := flag.NewFlagSet(commandString, flag.ExitOnError)
-	return &SchedulerCommand{core.Command{CommandString: commandString, Flagset: flagset}}
+	return &schedulerCommand{core.Command{CommandString: commandString, Flagset: flagset}}
 }

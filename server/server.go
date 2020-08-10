@@ -8,12 +8,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type ServerCommand struct {
+type serverCommand struct {
 	core.Command
 }
 
 // RunCommand parses the flags starts the Server.
-func (sch *ServerCommand) RunCommand(logger *zap.SugaredLogger) error {
+func (sch *serverCommand) RunCommand(logger *zap.SugaredLogger) error {
 	// TODO: parse flags before starting Server
 
 	logger.Infow("Starting Server")
@@ -28,8 +28,8 @@ func (sch *ServerCommand) RunCommand(logger *zap.SugaredLogger) error {
 }
 
 // NewCommand creates and returns an instance of ServerCommand.
-func NewCommand() *ServerCommand {
+func NewCommand() *serverCommand {
 	commandString := "server"
 	flagset := flag.NewFlagSet(commandString, flag.ExitOnError)
-	return &ServerCommand{core.Command{CommandString: commandString, Flagset: flagset}}
+	return &serverCommand{core.Command{CommandString: commandString, Flagset: flagset}}
 }
