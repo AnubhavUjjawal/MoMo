@@ -3,14 +3,12 @@ package core
 import (
 	"errors"
 	"flag"
-
-	"go.uber.org/zap"
 )
 
 // CommandInterface is set of methods that need to be implemented
 // for packages that want to expose a command for the command line.
 type CommandInterface interface {
-	RunCommand(*zap.SugaredLogger) error
+	RunCommand() error
 	GetCommandString() string
 	GetFlagSet() *flag.FlagSet
 }
@@ -21,7 +19,7 @@ type Command struct {
 	Flagset       *flag.FlagSet
 }
 
-func (comm *Command) RunCommand(*zap.SugaredLogger) error {
+func (comm *Command) RunCommand() error {
 	return errors.New("Not Implemented")
 }
 
