@@ -20,8 +20,8 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// GetRuntimeEnv returns RUNTIME_ENV. Used to configure logger, etc.
-func GetRuntimeEnv() string {
+// getRuntimeEnv returns RUNTIME_ENV. Used to configure logger, etc.
+func getRuntimeEnv() string {
 	return getEnv("RUNTIME_ENV", "DEV")
 }
 
@@ -30,7 +30,7 @@ func GetSugaredLogger() *Logger {
 	if sugaredLogger != nil {
 		return sugaredLogger
 	}
-	env := GetRuntimeEnv()
+	env := getRuntimeEnv()
 	var logger *zap.Logger
 	switch env {
 	case "DEV":

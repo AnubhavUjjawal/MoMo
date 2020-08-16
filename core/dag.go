@@ -3,10 +3,17 @@ package core
 import (
 	"fmt"
 	"os"
+	"path"
+	"plugin"
 	"time"
 
+	"github.com/AnubhavUjjawal/MoMo/config"
 	"github.com/AnubhavUjjawal/MoMo/logger"
 )
+
+// GetDAGsFn is the name of the function which is called when we open a dag
+// file. The dags returned from that fn are scheduled.
+const GetDAGsFn = "GetDAGs"
 
 // Dict type, can be used to hold arbitrary data.
 type Dict map[interface{}]interface{}
@@ -125,12 +132,34 @@ func (dag *DAG) LogInfo() {
 
 // ParseDag parses and looks for DAGS in DAG files recieved using the passed
 // channel.
-func ParseDag(parseDagChan <-chan os.FileInfo) {
-	// dagsDir := config.GetDagsDir()
+func ParseDag(parseDagChan <-chan os.FileInfo, parseDagCompleteChan chan<- struct{}) {
+	sugar := logger.GetSugaredLogger()
+	dagsDir := config.GetDagsDir()
+
+	// TODO: Add contextual deadline per fileInfo.
 	for fileInfo := range parseDagChan {
-		fmt.Println(fileInfo.Name())
-		// simulating expensive operation using time.Sleep()
-		workDuration, _ := time.ParseDuration("1000us")
-		time.Sleep(workDuration)
+		defer func() { parseDagCompleteChan <- struct{}{} }()
+		p, err := plugin.Open(path.Join(dagsDir, fileInfo.Name()))
+		if err != nil {
+			sugar.Errorw("Error while opening file as plugin", "err", err, "file", fileInfo.Name())
+			continue
+		}
+		fn, err := p.Lookup(GetDAGsFn)
+		if err != nil {
+			sugar.Errorf("Could not find %s fn in plugin file %s", GetDAGsFn, fileInfo.Name())
+			continue
+		}
+		getDags, ok := fn.(func() []*DAG)
+		if !ok {
+			sugar.Errorf("Error while typecasting fn %s in plugin file %s", GetDAGsFn, fileInfo.Name())
+			continue
+		}
+
+		dags := getDags()
+		for _, dag := range dags {
+			for task := range dag.TopologicalSortedTasks() {
+				fmt.Println(task.GetName())
+			}
+		}
 	}
 }

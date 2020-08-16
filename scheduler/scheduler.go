@@ -26,29 +26,38 @@ type Scheduler struct {
 
 // ParseDagsHandler handles creation and utilization of resources for ParseDags.
 func (sch *Scheduler) parseDagsHandler(ticker *time.Ticker) {
-	// TODO: Debounce next parse till previous one has completed.
 	sugar := logger.GetSugaredLogger()
 	dagsDir := config.GetDagsDir()
 	osSignal := make(chan os.Signal)
+	// buffering by 1 so that sch.parseDags can exit without blocking.
+	parseCompleteSignalChan := make(chan struct{}, 1)
 	signal.Notify(osSignal, syscall.SIGINT)
 	sugar.Infow("Starting parsing dags at", "path", dagsDir)
 
 	// TODO: Add recover from panic if any spawned goroutine fails.
-	go sch.parseDags()
+	prevParseComplete := false
+	go sch.parseDags(parseCompleteSignalChan)
 	for {
 		select {
 		case <-ticker.C:
-			go sch.parseDags()
+			if !prevParseComplete {
+				sugar.Infow("Skipping dags parsing. Previous parse yet not complete.")
+			} else {
+				prevParseComplete = false
+				go sch.parseDags(parseCompleteSignalChan)
+			}
 		case <-osSignal:
 			defer os.Exit(0)
 			sugar.Infow("Gracefully stopping parsing dags at", "path", dagsDir)
 			ticker.Stop()
 			runtime.Goexit()
+		case <-parseCompleteSignalChan:
+			prevParseComplete = true
 		}
 	}
 }
 
-func (sch *Scheduler) parseDags() {
+func (sch *Scheduler) parseDags(parseCompleteSignalChan chan<- struct{}) {
 	// https://blog.golang.org/pipelines
 	dagsDir := config.GetDagsDir()
 	sugar := logger.GetSugaredLogger()
@@ -56,16 +65,17 @@ func (sch *Scheduler) parseDags() {
 
 	files, err := ioutil.ReadDir(dagsDir)
 	if err != nil {
-		sugar.Warnw("Got err while trying to parseDags", "dagsDir", dagsDir, "err", err)
+		sugar.Errorw("Got err while trying to parseDags", "dagsDir", dagsDir, "err", err)
 		return
 	}
 
 	numConcurrentWorkers := config.NumCocurrencyGoRoutine()
 	parseDagChan := make(chan os.FileInfo, numConcurrentWorkers)
+	parseDagCompleteChan := make(chan struct{})
 
 	for i := 0; i < numConcurrentWorkers; i++ {
 		sugar.Debugf("Spawned %d goroutine to parse dags", i+1)
-		go core.ParseDag(parseDagChan)
+		go core.ParseDag(parseDagChan, parseDagCompleteChan)
 	}
 
 	start := time.Now()
@@ -75,8 +85,13 @@ func (sch *Scheduler) parseDags() {
 		}
 	}
 	close(parseDagChan)
+	for _, file := range files {
+		_ = file
+		<-parseDagCompleteChan
+	}
 	finish := time.Now()
 	sugar.Debugf("Took %d ns", finish.Sub(start))
+	parseCompleteSignalChan <- struct{}{}
 }
 
 type schedulerCommand struct {

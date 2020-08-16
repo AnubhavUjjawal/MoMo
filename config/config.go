@@ -50,7 +50,7 @@ func NumCocurrencyGoRoutine() int {
 
 	if err != nil || num < 1 {
 		sugar.Fatalf("Invalid Value for NUM_CONCURRENCY_GO_ROUTINE %s",
-			getEnv("NUM_CONCURRENCY_GO_ROUTINE", "5"))
+			getEnv("NUM_CONCURRENCY_GO_ROUTINE", "10"))
 	}
 	return num
 }
