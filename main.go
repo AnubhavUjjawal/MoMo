@@ -4,6 +4,8 @@ import (
 	"flag"
 	"os"
 
+	"github.com/AnubhavUjjawal/MoMo/worker"
+
 	"github.com/AnubhavUjjawal/MoMo/logger"
 	"github.com/AnubhavUjjawal/MoMo/server"
 
@@ -48,7 +50,10 @@ func registerSubCommands() []core.CommandInterface {
 	// This can be done by GO plugins
 	// https://medium.com/learning-the-go-programming-language/writing-modular-go-programs-with-plugins-ec46381ee1a9
 	commands := make([]core.CommandInterface, 0)
-	commands = append(commands, scheduler.NewCommand(), server.NewCommand())
+	commands = append(commands,
+		scheduler.NewCommand(),
+		server.NewCommand(),
+		worker.NewCommand())
 	return commands
 }
 

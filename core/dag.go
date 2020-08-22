@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -16,7 +17,7 @@ import (
 const GetDAGsFn = "GetDAGs"
 
 // Dict type, can be used to hold arbitrary data.
-type Dict map[interface{}]interface{}
+type Dict map[string]interface{}
 
 // DAG is a basic collection of tasks that we want to run, organised in a way
 // that specifies their dependencies and relationships.
@@ -25,14 +26,19 @@ type DAG struct {
 	Schedule    time.Duration
 	DefaultArgs Dict
 	Description string
+	StartDate   time.Time
 	tasks       map[string]TaskInterface
+}
+
+func (dag *DAG) GetTasks() map[string]TaskInterface {
+	return dag.tasks
 }
 
 func (dag *DAG) DetectCycles() error {
 	unvisitedSet := make(map[string]struct{})
 	visitingSet := make(map[string]struct{})
 	visitedSet := make(map[string]struct{})
-	for taskName, _ := range dag.tasks {
+	for taskName := range dag.tasks {
 		unvisitedSet[taskName] = struct{}{}
 	}
 
@@ -49,6 +55,52 @@ func (dag *DAG) DetectCycles() error {
 	return nil
 }
 
+func (dag *DAG) MarshalJSON() ([]byte, error) {
+	tasks := make([]string, 0)
+	for task := range dag.tasks {
+		tasks = append(tasks, task)
+	}
+	return json.Marshal(map[string]interface{}{
+		"Name":        dag.Name,
+		"Schedule":    dag.Schedule,
+		"DefaultArgs": dag.DefaultArgs,
+		"Description": dag.Description,
+		"StartDate":   dag.StartDate,
+		"tasks":       tasks,
+	})
+}
+
+// UnmarshalJSON contains the logic of Unmarshaling the dag marshaled by
+// MarshalDag. Check BaseTask.MarshalTask as well.
+func (dag *DAG) UnmarshalJSON(b []byte) error {
+	// sugar := logger.GetSugaredLogger()
+	var data map[string]interface{}
+	err := json.Unmarshal(b, &data)
+	if err != nil {
+		return err
+	}
+	dag.Name = data["Name"].(string)
+	dag.Schedule = time.Duration(data["Schedule"].(float64))
+	dag.DefaultArgs = Dict(data["DefaultArgs"].(map[string]interface{}))
+	dag.Description = data["Description"].(string)
+	dag.StartDate, err = time.Parse(time.RFC3339, data["StartDate"].(string))
+	dag.tasks = make(map[string]TaskInterface)
+	if err != nil {
+		panic(err)
+	}
+	tasks := data["tasks"].([]interface{})
+	for _, task := range tasks {
+		task := task.(string)
+		dag.tasks[task] = nil
+	}
+	return nil
+}
+
+// // OverwriteTask replaces the passed task argument in the dag.
+// func (dag *DAG) OverwriteTask(task TaskInterface) {
+// 	dag.tasks[task.GetName()] = task
+// }
+
 func (dag *DAG) detectCycleDFS(nextEl string, unvisitedSet, visitingSet, visitedSet *map[string]struct{}) bool {
 	// move nextEl from unvisited to visiting
 	delete(*unvisitedSet, nextEl)
@@ -57,12 +109,12 @@ func (dag *DAG) detectCycleDFS(nextEl string, unvisitedSet, visitingSet, visited
 	// iterate over neighbors and call detectCycleDFS on them if they are not
 	// already visited.
 	for neighbor := range dag.tasks[nextEl].GetUpstream() {
-		_, ok := (*visitedSet)[neighbor.GetName()]
+		_, ok := (*visitedSet)[neighbor]
 		// neighbor already visited
 		if ok {
 			continue
 		}
-		_, ok = (*visitingSet)[neighbor.GetName()]
+		_, ok = (*visitingSet)[neighbor]
 		// cycle detected
 		if ok {
 			sugar := logger.GetSugaredLogger()
@@ -70,7 +122,7 @@ func (dag *DAG) detectCycleDFS(nextEl string, unvisitedSet, visitingSet, visited
 			return true
 		}
 
-		if dag.detectCycleDFS(neighbor.GetName(), unvisitedSet, visitingSet, visitedSet) {
+		if dag.detectCycleDFS(neighbor, unvisitedSet, visitingSet, visitedSet) {
 			return true
 		}
 	}
@@ -107,10 +159,10 @@ func (dag *DAG) TopologicalSortedTasks() chan TaskInterface {
 		for len(taskQ) > 0 {
 			task := taskQ[0]
 			taskQ = taskQ[1:]
-			for upStreamTask := range dag.tasks[task.GetName()].GetUpstream() {
-				inDegree[upStreamTask.GetName()]--
-				if inDegree[upStreamTask.GetName()] == 0 {
-					taskQ = append(taskQ, upStreamTask)
+			for upStreamTaskName := range dag.tasks[task.GetName()].GetUpstream() {
+				inDegree[upStreamTaskName]--
+				if inDegree[upStreamTaskName] == 0 {
+					taskQ = append(taskQ, dag.tasks[upStreamTaskName])
 				}
 			}
 			taskChan <- task

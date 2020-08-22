@@ -1,0 +1,17 @@
+# This docker-compose.yml launches a bootstrapped version of the services needed
+# by MoMo to run. Ideal for development. not for Production.
+version: '3.7'
+
+services: 
+  redis:
+    container_name: redis
+    image: redis:alpine
+    ports: 
+      - 6379:6379
+    command: --appendonly yes
+    volumes: 
+      - redis:/data
+      
+volumes: 
+  redis:
+    external: false
