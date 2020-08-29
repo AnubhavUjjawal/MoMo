@@ -15,7 +15,7 @@ import (
 
 func main() {
 	sugar := logger.GetSugaredLogger()
-	sugar.Info("Starting MoMo: A Workflow management platform inspired by Apache Airflow!")
+	sugar.Info("Starting MoMo 😽😺: A Workflow management platform inspired by Apache Airflow!")
 
 	// Sample DAG check
 	// schedule, _ := time.ParseDuration("2h")

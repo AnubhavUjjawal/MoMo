@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/AnubhavUjjawal/MoMo/logger"
 )
@@ -32,8 +33,25 @@ func GetDagsDir() string {
 }
 
 // GetDagsParseInterval returns DAGS_PARSE_INTERVAL used by scheduler.
-func GetDagsParseInterval() string {
-	return getEnv("DAGS_PARSE_INTERVAL", "5s")
+func GetDagsParseInterval() time.Duration {
+	intervalStr := getEnv("DAGS_PARSE_INTERVAL", "5s")
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		logger.GetSugaredLogger().Fatalw("Invalid DAGS_PARSE_INTERVAL", "DAGS_PARSE_INTERVAL", intervalStr)
+	}
+	return interval
+}
+
+// GetDagRunCheckInterval returns DAG_RUN_CHECK_INTERVAL used by scheduler. It is
+// the time which scheduler must wait before checking which tasks need to be
+// scheduled.
+func GetDagRunCheckInterval() time.Duration {
+	intervalStr := getEnv("DAG_RUN_CHECK_INTERVAL", "5s")
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		logger.GetSugaredLogger().Fatalw("Invalid DAG_RUN_CHECK_INTERVAL", "DAG_RUN_CHECK_INTERVAL", intervalStr)
+	}
+	return interval
 }
 
 // GetRuntimeEnv returns RUNTIME_ENV. Used to configuration purposes.
@@ -53,4 +71,9 @@ func NumCocurrencyGoRoutine() int {
 			getEnv("NUM_CONCURRENCY_GO_ROUTINE", "10"))
 	}
 	return num
+}
+
+// GetDataStore returns the persistence backend type we are using.
+func GetDataStore() string {
+	return getEnv("DATASTORE", "REDIS")
 }

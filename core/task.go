@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"time"
 )
 
 type TaskInterface interface {
@@ -19,6 +20,26 @@ type TaskInterface interface {
 	MarshalJSON() ([]byte, error)
 	// Void does nothing. Call this method to silence errors on tasks in dags.
 	Void()
+}
+
+const TASK_RUNNING int8 = 1
+const TASK_SCHEDULED int8 = 0
+const TASK_COMPLETED int8 = 2
+
+type TaskInstance struct {
+	// 0 for scheduled, 1 for running, 2 for completed.
+	State int8
+	Time  time.Time
+	// dag.Name + ":" + task.GetName()
+	TaskName string
+}
+
+func (taskIn *TaskInstance) MarshalBinary() ([]byte, error) {
+	return json.Marshal(taskIn)
+}
+
+func (taskIn *TaskInstance) UnmarshalBinary(val []byte) error {
+	return json.Unmarshal(val, taskIn)
 }
 
 // BaseTask contains the basic task attributes, and implements the basic
@@ -54,7 +75,7 @@ func (task *BaseTask) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarhsaledJSONtoTask converts output of MarshalJSON() to a task. Make sure
-// to add the task to the passed dag as well.
+// to add the task to the passed dag.tasks as well.
 func UnmarhsaledJSONtoTask(taskData map[string]interface{}, dag *DAG) {
 	// TODO: Allow other Tasks by plugins.
 	// TODO: This method needs rework.

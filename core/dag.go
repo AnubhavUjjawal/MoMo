@@ -3,18 +3,10 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path"
-	"plugin"
 	"time"
 
-	"github.com/AnubhavUjjawal/MoMo/config"
 	"github.com/AnubhavUjjawal/MoMo/logger"
 )
-
-// GetDAGsFn is the name of the function which is called when we open a dag
-// file. The dags returned from that fn are scheduled.
-const GetDAGsFn = "GetDAGs"
 
 // Dict type, can be used to hold arbitrary data.
 type Dict map[string]interface{}
@@ -28,6 +20,19 @@ type DAG struct {
 	Description string
 	StartDate   time.Time
 	tasks       map[string]TaskInterface
+}
+
+type DagRunType struct {
+	SchTime   int64
+	Completed bool
+}
+
+func (dr *DagRunType) MarshalBinary() ([]byte, error) {
+	return json.Marshal(dr)
+}
+
+func (dr *DagRunType) UnmarshalBinary(val []byte) error {
+	return json.Unmarshal(val, dr)
 }
 
 func (dag *DAG) GetTasks() map[string]TaskInterface {
@@ -96,11 +101,6 @@ func (dag *DAG) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// // OverwriteTask replaces the passed task argument in the dag.
-// func (dag *DAG) OverwriteTask(task TaskInterface) {
-// 	dag.tasks[task.GetName()] = task
-// }
-
 func (dag *DAG) detectCycleDFS(nextEl string, unvisitedSet, visitingSet, visitedSet *map[string]struct{}) bool {
 	// move nextEl from unvisited to visiting
 	delete(*unvisitedSet, nextEl)
@@ -156,6 +156,13 @@ func (dag *DAG) TopologicalSortedTasks() chan TaskInterface {
 	}
 
 	go func() {
+
+		// This recover func is useful if we want to see the starting
+		// n tasks only. Then we can close the taskChan and recover from panic.
+		defer func() {
+			if r := recover(); r != nil {
+			}
+		}()
 		for len(taskQ) > 0 {
 			task := taskQ[0]
 			taskQ = taskQ[1:]
@@ -180,38 +187,4 @@ func (dag *DAG) LogInfo() {
 		tasks = append(tasks, task)
 	}
 	sugar.Infow("DAG info:", "DAG", dag.Name, "schedule", dag.Schedule, "tasks", tasks)
-}
-
-// ParseDag parses and looks for DAGS in DAG files recieved using the passed
-// channel.
-func ParseDag(parseDagChan <-chan os.FileInfo, parseDagCompleteChan chan<- struct{}) {
-	sugar := logger.GetSugaredLogger()
-	dagsDir := config.GetDagsDir()
-
-	// TODO: Add contextual deadline per fileInfo.
-	for fileInfo := range parseDagChan {
-		defer func() { parseDagCompleteChan <- struct{}{} }()
-		p, err := plugin.Open(path.Join(dagsDir, fileInfo.Name()))
-		if err != nil {
-			sugar.Errorw("Error while opening file as plugin", "err", err, "file", fileInfo.Name())
-			continue
-		}
-		fn, err := p.Lookup(GetDAGsFn)
-		if err != nil {
-			sugar.Errorf("Could not find %s fn in plugin file %s", GetDAGsFn, fileInfo.Name())
-			continue
-		}
-		getDags, ok := fn.(func() []*DAG)
-		if !ok {
-			sugar.Errorf("Error while typecasting fn %s in plugin file %s", GetDAGsFn, fileInfo.Name())
-			continue
-		}
-
-		dags := getDags()
-		for _, dag := range dags {
-			for task := range dag.TopologicalSortedTasks() {
-				fmt.Println(task.GetName())
-			}
-		}
-	}
 }
