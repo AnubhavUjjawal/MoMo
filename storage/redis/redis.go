@@ -15,11 +15,9 @@ import (
 
 type RedisDataStoreClient struct {
 	redisClient *redis.Client
-	ctx         context.Context
 }
 
 var redisDataStoreClient *RedisDataStoreClient
-var ctx = context.Background()
 var sugar = logger.GetSugaredLogger()
 
 // GetClient returns a redis.Client
@@ -35,12 +33,13 @@ func (r *RedisDataStoreClient) GetClient() *redis.Client {
 		DB:       0,
 		PoolSize: 16,
 	})
-	redisDataStoreClient = &RedisDataStoreClient{redisClient, ctx}
+	redisDataStoreClient = &RedisDataStoreClient{redisClient}
 	return redisDataStoreClient.redisClient
 }
 
 //TODO: use ctx passed in methods which interact with GetClient
-func (r *RedisDataStoreClient) AddDag(dag *core.DAG) {
+//TODO: Use Redis Transactions here
+func (r *RedisDataStoreClient) AddDag(ctx context.Context, dag *core.DAG) {
 	data, err := dag.MarshalJSON()
 	if err != nil {
 		panic(err)
@@ -53,7 +52,7 @@ func (r *RedisDataStoreClient) AddDag(dag *core.DAG) {
 
 	// TODO: Remove old tasks from redis.
 	for _, task := range dag.GetTasks() {
-		r.AddTask(task)
+		r.AddTask(ctx, task)
 	}
 }
 
@@ -61,7 +60,7 @@ func taskKeyPrefix(dag *core.DAG) string {
 	return dag.Name + ":"
 }
 
-func (r *RedisDataStoreClient) AddTask(task core.TaskInterface) {
+func (r *RedisDataStoreClient) AddTask(ctx context.Context, task core.TaskInterface) {
 	data, err := task.MarshalJSON()
 	if err != nil {
 		panic(err)
@@ -73,7 +72,7 @@ func (r *RedisDataStoreClient) AddTask(task core.TaskInterface) {
 	}
 }
 
-func (r *RedisDataStoreClient) AddTaskInstance(taskInstance *core.TaskInstance, dag *core.DAG) {
+func (r *RedisDataStoreClient) AddOrUpdateTaskInstance(ctx context.Context, taskInstance *core.TaskInstance, dag *core.DAG) {
 	sugar.Debugf("Adding taskinstance %s:%s with state %d to store",
 		dag.Name, taskInstance.TaskName, taskInstance.State)
 	key := taskKeyPrefix(dag) + string(taskInstance.Time.Unix())
@@ -87,7 +86,7 @@ func (r *RedisDataStoreClient) AddTaskInstance(taskInstance *core.TaskInstance, 
 
 // func GetAllTasks(dagName string) {}
 
-func (r *RedisDataStoreClient) GetDagLastRun(dagName string) (time.Time, bool) {
+func (r *RedisDataStoreClient) GetDagLastRun(ctx context.Context, dagName string) (time.Time, bool) {
 	val, err := r.GetClient().ZRevRangeByScore(
 		ctx,
 		"dagruns:"+dagName,
@@ -107,12 +106,8 @@ func (r *RedisDataStoreClient) GetDagLastRun(dagName string) (time.Time, bool) {
 	return time.Unix(lastRun.SchTime, 0), lastRun.Completed
 }
 
-func (r *RedisDataStoreClient) GetTaskInstances(dagName string, dagRunTime time.Time) map[string]*core.TaskInstance {
-	return nil
-}
-
 // TODO: Do this using redis transaction.
-func (r *RedisDataStoreClient) AddDagRun(dag *core.DAG, schTime time.Time) {
+func (r *RedisDataStoreClient) AddDagRun(ctx context.Context, dag *core.DAG, schTime time.Time) {
 	dagName := dag.Name
 	_, err := r.GetClient().ZAdd(
 		ctx,
@@ -126,20 +121,27 @@ func (r *RedisDataStoreClient) AddDagRun(dag *core.DAG, schTime time.Time) {
 
 	// Add taskruns for all tasks whose downstream is empty with
 	// state set to 0 (i.e, not running)
+	// TODO: Refactor this, get task instances from a method in core.tasks.
 	for task := range tasksChan {
 		if len(task.GetDownstream()) != 0 {
-			close(tasksChan)
-			break
+			r.AddOrUpdateTaskInstance(ctx, &core.TaskInstance{
+				State:    core.TASK_SCHEDULED,
+				Time:     schTime,
+				TaskName: task.GetName(),
+				DagName:  dag.Name,
+			}, dag)
+		} else {
+			r.AddOrUpdateTaskInstance(ctx, &core.TaskInstance{
+				State:    core.TASK_READY_TO_RUN,
+				Time:     schTime,
+				TaskName: task.GetName(),
+				DagName:  dag.Name,
+			}, dag)
 		}
-		r.AddTaskInstance(&core.TaskInstance{
-			State:    core.TASK_SCHEDULED,
-			Time:     schTime,
-			TaskName: task.GetName(),
-		}, dag)
 	}
 }
 
-func (r *RedisDataStoreClient) GetAllDags() chan *core.DAG {
+func (r *RedisDataStoreClient) GetAllDags(ctx context.Context) chan *core.DAG {
 	allDagsChan := make(chan *core.DAG)
 	go func() {
 		val, err := r.GetClient().HGetAll(ctx, "dags").Result()
@@ -148,15 +150,15 @@ func (r *RedisDataStoreClient) GetAllDags() chan *core.DAG {
 		}
 		for _, dag := range val {
 			println(dag)
-			allDagsChan <- r.getDagFromStr(dag)
+			allDagsChan <- r.getDagFromStr(ctx, dag)
 		}
 		close(allDagsChan)
 	}()
 	return allDagsChan
 }
 
-func (r *RedisDataStoreClient) GetTaskRuns(dagName string, dagRunTime time.Time) map[string]*core.TaskInstance {
-	val, err := r.GetClient().HGetAll(ctx, "dagrun:"+dagName+":"+string(dagRunTime.Unix())).Result()
+func (r *RedisDataStoreClient) GetTaskInstances(ctx context.Context, dag *core.DAG, dagRunTime time.Time) map[string]*core.TaskInstance {
+	val, err := r.GetClient().HGetAll(ctx, taskKeyPrefix(dag)+string(dagRunTime.Unix())).Result()
 	if err != nil {
 		panic(err)
 	}
@@ -172,15 +174,15 @@ func (r *RedisDataStoreClient) GetTaskRuns(dagName string, dagRunTime time.Time)
 	return taskInstances
 }
 
-func (r *RedisDataStoreClient) GetDag(dagName string) *core.DAG {
+func (r *RedisDataStoreClient) GetDag(ctx context.Context, dagName string) *core.DAG {
 	val, err := r.GetClient().HGet(ctx, "dags", dagName).Result()
 	if err != nil {
 		panic(err)
 	}
-	return r.getDagFromStr(val)
+	return r.getDagFromStr(ctx, val)
 }
 
-func (r *RedisDataStoreClient) getDagFromStr(val string) *core.DAG {
+func (r *RedisDataStoreClient) getDagFromStr(ctx context.Context, val string) *core.DAG {
 	dag := &core.DAG{}
 	err := dag.UnmarshalJSON([]byte(val))
 	if err != nil {

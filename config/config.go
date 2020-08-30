@@ -77,3 +77,20 @@ func NumCocurrencyGoRoutine() int {
 func GetDataStore() string {
 	return getEnv("DATASTORE", "REDIS")
 }
+
+// GetPubSubClient returns the pub sub backend type we are using.
+func GetPubSubClient() string {
+	return getEnv("PUB_SUB", "REDIS")
+}
+
+// GetNumWorkers tell us number of worker goroutines to spawn per worker
+func GetNumWorkers() int {
+	sugar := logger.GetSugaredLogger()
+	num, err := strconv.Atoi(getEnv("NUM_WORKERS", "2"))
+
+	if err != nil || num < 1 {
+		sugar.Fatalf("Invalid Value for NUM_WORKERS %s",
+			getEnv("NUM_WORKERS", "2"))
+	}
+	return num
+}

@@ -9,8 +9,8 @@ services:
     ports: 
       - 6379:6379
     command: --appendonly yes
-    volumes: 
-      - redis:/data
+    # volumes: 
+    #   - redis:/data
       
 volumes: 
   redis:

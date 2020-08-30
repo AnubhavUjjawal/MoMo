@@ -4,7 +4,9 @@ package scheduler
 // on different servers can run and communicate concurrently.
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/signal"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/AnubhavUjjawal/MoMo/logger"
+	"github.com/AnubhavUjjawal/MoMo/pubsub"
 	"github.com/AnubhavUjjawal/MoMo/storage"
 
 	"github.com/AnubhavUjjawal/MoMo/config"
@@ -133,16 +136,18 @@ func (sch *Scheduler) parseDag(parseDagChan <-chan os.FileInfo, parseDagComplete
 		// TODO: Add a recover for getDags()
 		dags := getDags()
 		storageClient := storage.DataStoreClient()
+		pubsubClient := pubsub.PubSubClient()
+
 		for _, dag := range dags {
 			sugar.Infof("Sending dag %s to store", dag.Name)
-			storageClient.AddDag(dag)
+			storageClient.AddDag(context.TODO(), dag)
 
 			// For a DAG to be scheduled, these conditions must be met:
 			// - start date < curr time
 			// - previousDagRun is complete
 			// - curr time > previousDagRun + dag schedule
 			now := time.Now()
-			lastRun, lastRunIsComplete := storageClient.GetDagLastRun(dag.Name)
+			lastRun, lastRunIsComplete := storageClient.GetDagLastRun(context.TODO(), dag.Name)
 			sugar.Debugw("Should DAG be scheduled",
 				"DagStartDateBeforeNow", dag.StartDate.Before(now),
 				"LastRunPlusScheduleBeforeNow", lastRun.Add(dag.Schedule).Before(now),
@@ -152,49 +157,69 @@ func (sch *Scheduler) parseDag(parseDagChan <-chan os.FileInfo, parseDagComplete
 				lastRunIsComplete {
 				sugar.Infof("Adding %s dag to scheduled run %s", dag.Name, now)
 				// push tasks to pubsub then AddDagRun to storage client.
-				storageClient.AddDagRun(dag, now)
+				// Only push those tasks to pubsub which have no downstream
+				// dependencies. Add DagRun in storageClient, however, adds
+				// dag run and puts all task instances with
+				tasksChan := dag.TopologicalSortedTasks()
+
+				// Add taskruns for all tasks whose downstream is empty with
+				// state set to 0 (i.e, not running)
+				for task := range tasksChan {
+					if len(task.GetDownstream()) != 0 {
+						close(tasksChan)
+						break
+					}
+					pubsubClient.PublishTaskInstanceToRun(context.TODO(), &core.TaskInstance{
+						State:    core.TASK_READY_TO_RUN,
+						Time:     now,
+						TaskName: task.GetName(),
+						DagName:  dag.Name,
+					}, dag)
+				}
+				storageClient.AddDagRun(context.TODO(), dag, now)
 			}
 		}
 	}
 }
 
-func (sch *Scheduler) runTasks(tasksChan chan<- core.TaskInterface) {
-
-}
-
-func (sch *Scheduler) scheduleTasks(dag *core.DAG, lastRunTime time.Time, tasksChan <-chan core.TaskInterface) {
-	// TODO: Check if tasks are already running.
+func (sch *Scheduler) scheduleTasks() {
+	pubsubClient := pubsub.PubSubClient()
 	storageClient := storage.DataStoreClient()
-	taskRuns := storageClient.GetTaskRuns(dag.Name, lastRunTime)
-	tasksRunOrderChan := dag.TopologicalSortedTasks()
-	if len(taskRuns) == 0 {
-		_ = <-tasksRunOrderChan
-		// publish this task to redis pub sub
+	for {
+		tis, ids := pubsubClient.GetCompletedTasks(context.TODO(), 1)
+		for index, ti := range tis {
+			dag := storageClient.GetDag(context.TODO(), ti.DagName)
+			allTaskInstancesOfRun := storageClient.GetTaskInstances(context.TODO(), dag, ti.Time)
+			executedTasks := make(map[string]*core.TaskInstance)
+			for name, task := range allTaskInstancesOfRun {
+				if task.State == core.TASK_COMPLETED || task.State == core.TASK_RUNNING {
+					executedTasks[name] = task
+				}
+			}
+			for task := range dag.TopologicalSortedTasks() {
+				if _, ok := executedTasks[task.GetName()]; !ok {
+					// check if all downstream are successfull
+					canTaskBeRun := true
+					for taskName := range task.GetDownstream() {
+						executedTask, ok := executedTasks[taskName]
+						if !ok || executedTask.State != core.TASK_COMPLETED {
+							canTaskBeRun = false
+							break
+						}
+					}
+					if canTaskBeRun {
+						fmt.Println(allTaskInstancesOfRun)
+						ti := allTaskInstancesOfRun[task.GetName()]
+						ti.State = core.TASK_READY_TO_RUN
+						pubsubClient.PublishTaskInstanceToRun(context.TODO(), ti, dag)
+						storageClient.AddOrUpdateTaskInstance(context.TODO(), ti, dag)
+					}
+				}
+			}
+			pubsubClient.AckTaskCompletionProcessed(context.TODO(), ids[index])
+		}
 	}
-
 }
-
-// func (sch *Scheduler) runDags() {
-// 	// For all DagRun currently incomplete(false), see what task instances are completed.
-// 	// If no task instance is completed, run the first task instance.
-// 	// Else, run the next task in sequence.
-
-// 	// TODO: Make this more concurrent
-
-// 	sugar := logger.GetSugaredLogger()
-// 	storageClient := storage.DataStoreClient()
-// 	for dag := range storageClient.GetAllDags() {
-// 		lastRunTime, lastRunIsComplete := storageClient.GetDagLastRun(dag.Name)
-// 		if lastRunIsComplete {
-// 			continue
-// 		}
-// 		sugar.Debugw("Last run time for DAG", "dag", dag.Name, "time", lastRunTime.String())
-
-// 		tasksChan := make(chan core.TaskInterface)
-// 		go sch.runTasks(tasksChan)
-// 		go sch.scheduleTasks(dag, lastRunTime, tasksChan)
-// 	}
-// }
 
 type schedulerCommand struct {
 	core.Command
@@ -210,13 +235,12 @@ func (sch *schedulerCommand) RunCommand() error {
 	runDuration := config.GetDagRunCheckInterval()
 	scheduler := Scheduler{parseDuration, runDuration}
 	msgChannelParseDagsHandler := time.NewTicker(scheduler.parseSchedule)
-	msgChannelRunDags := time.NewTicker(scheduler.runSchedule)
+	// msgChannelRunDags := time.NewTicker(scheduler.runSchedule)
 
 	// TODO: Add heartbeat to both goroutines so that we can respawn failed ones.
 	go func() {
-		for range msgChannelRunDags.C {
-			scheduler.scheduleTasks()
-		}
+		pubsub.PubSubClient().CreateConsumerGroupTasksCompleted(context.TODO())
+		scheduler.scheduleTasks()
 	}()
 	scheduler.parseDagsHandler(msgChannelParseDagsHandler)
 	return nil

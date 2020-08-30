@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"time"
 
 	"github.com/AnubhavUjjawal/MoMo/config"
@@ -12,18 +13,19 @@ import (
 // DataStore is the common interface which should be implemented to interact
 // for persistence in different data stores, eg: redis, mysql.
 // NOTE: They should be threadsafe to use.
+// TODO: Add context to every method in this interface.
 type DataStore interface {
-	AddDag(dag *core.DAG)
-	AddTask(task core.TaskInterface)
-	AddDagRun(dag *core.DAG, schTime time.Time)
-	AddTaskInstance(taskInstance *core.TaskInstance, dag *core.DAG)
-	GetDag(dagName string) *core.DAG
-	GetDagLastRun(dagName string) (schTime time.Time, complete bool)
+	AddDag(cxt context.Context, dag *core.DAG)
+	AddTask(cxt context.Context, task core.TaskInterface)
+	AddDagRun(cxt context.Context, dag *core.DAG, schTime time.Time)
+	AddOrUpdateTaskInstance(cxt context.Context, taskInstance *core.TaskInstance, dag *core.DAG)
+	GetDag(cxt context.Context, dagName string) *core.DAG
+	GetDagLastRun(cxt context.Context, dagName string) (schTime time.Time, complete bool)
 	// GetTask(taskName string) *core.TaskInterface
 	// GetAllTasks(dagName string) []*core.TaskInterface
 	// GetTaskInstances(dagRunTime string)
-	GetTaskInstances(dagName string, dagRunTime time.Time) map[string]*core.TaskInstance
-	GetAllDags() chan *core.DAG
+	GetTaskInstances(cxt context.Context, dag *core.DAG, dagRunTime time.Time) map[string]*core.TaskInstance
+	GetAllDags(cxt context.Context) chan *core.DAG
 }
 
 func DataStoreClient() DataStore {

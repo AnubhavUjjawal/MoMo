@@ -22,16 +22,21 @@ type TaskInterface interface {
 	Void()
 }
 
-const TASK_RUNNING int8 = 1
-const TASK_SCHEDULED int8 = 0
-const TASK_COMPLETED int8 = 2
+type taskState int8
 
+const TASK_SCHEDULED taskState = 0
+const TASK_READY_TO_RUN taskState = 1
+const TASK_RUNNING taskState = 2
+const TASK_COMPLETED taskState = 3
+const TASK_FAILED taskState = 4
+
+// TODO: Add Execution Start Time
 type TaskInstance struct {
 	// 0 for scheduled, 1 for running, 2 for completed.
-	State int8
-	Time  time.Time
-	// dag.Name + ":" + task.GetName()
+	State    taskState
+	Time     time.Time
 	TaskName string
+	DagName  string
 }
 
 func (taskIn *TaskInstance) MarshalBinary() ([]byte, error) {
