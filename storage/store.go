@@ -24,6 +24,7 @@ type DataStore interface {
 	// GetTask(taskName string) *core.TaskInterface
 	// GetAllTasks(dagName string) []*core.TaskInterface
 	// GetTaskInstances(dagRunTime string)
+	UpdateDagRunToComplete(cxt context.Context, dag *core.DAG, schTime time.Time)
 	GetTaskInstances(cxt context.Context, dag *core.DAG, dagRunTime time.Time) map[string]*core.TaskInstance
 	GetAllDags(cxt context.Context) chan *core.DAG
 }

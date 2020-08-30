@@ -6,7 +6,6 @@ package scheduler
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"os/signal"
@@ -153,7 +152,7 @@ func (sch *Scheduler) parseDag(parseDagChan <-chan os.FileInfo, parseDagComplete
 				"LastRunPlusScheduleBeforeNow", lastRun.Add(dag.Schedule).Before(now),
 				"LastRunComplete", lastRunIsComplete)
 			if dag.StartDate.Before(now) &&
-				lastRun.Before(now.Add(dag.Schedule)) &&
+				lastRun.Add(dag.Schedule).Before(now) &&
 				lastRunIsComplete {
 				sugar.Infof("Adding %s dag to scheduled run %s", dag.Name, now)
 				// push tasks to pubsub then AddDagRun to storage client.
@@ -182,6 +181,8 @@ func (sch *Scheduler) parseDag(parseDagChan <-chan os.FileInfo, parseDagComplete
 	}
 }
 
+// TODO: Add Graceful exit, i.e, upon recieving os.Signal, process the last task
+// then break loop.
 func (sch *Scheduler) scheduleTasks() {
 	pubsubClient := pubsub.PubSubClient()
 	storageClient := storage.DataStoreClient()
@@ -208,7 +209,6 @@ func (sch *Scheduler) scheduleTasks() {
 						}
 					}
 					if canTaskBeRun {
-						fmt.Println(allTaskInstancesOfRun)
 						ti := allTaskInstancesOfRun[task.GetName()]
 						ti.State = core.TASK_READY_TO_RUN
 						pubsubClient.PublishTaskInstanceToRun(context.TODO(), ti, dag)
@@ -217,6 +217,29 @@ func (sch *Scheduler) scheduleTasks() {
 				}
 			}
 			pubsubClient.AckTaskCompletionProcessed(context.TODO(), ids[index])
+		}
+	}
+}
+
+func (sch *Scheduler) trackDagsRunState() {
+	storageClient := storage.DataStoreClient()
+	for {
+		for dag := range storageClient.GetAllDags(context.TODO()) {
+			lastRunTime, complete := storageClient.GetDagLastRun(context.TODO(), dag.Name)
+			if complete {
+				continue
+			}
+			allTaskInstancesOfRun := storageClient.GetTaskInstances(context.TODO(), dag, lastRunTime)
+			areAllTasksComplete := true
+			for _, ti := range allTaskInstancesOfRun {
+				if ti.State != core.TASK_COMPLETED {
+					areAllTasksComplete = false
+					break
+				}
+			}
+			if areAllTasksComplete {
+				storageClient.UpdateDagRunToComplete(context.TODO(), dag, lastRunTime)
+			}
 		}
 	}
 }
@@ -241,6 +264,9 @@ func (sch *schedulerCommand) RunCommand() error {
 	go func() {
 		pubsub.PubSubClient().CreateConsumerGroupTasksCompleted(context.TODO())
 		scheduler.scheduleTasks()
+	}()
+	go func() {
+		scheduler.trackDagsRunState()
 	}()
 	scheduler.parseDagsHandler(msgChannelParseDagsHandler)
 	return nil

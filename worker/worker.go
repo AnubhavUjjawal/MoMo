@@ -20,6 +20,7 @@ type taskInstanceMessage struct {
 	ti *core.TaskInstance
 }
 
+// TODO: Add Graceful exit.
 func executeTask(taskInstanceChan <-chan *taskInstanceMessage) {
 	sugar := logger.GetSugaredLogger()
 	pubsubClient := pubsub.PubSubClient()

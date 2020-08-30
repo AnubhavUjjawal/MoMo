@@ -141,6 +141,18 @@ func (r *RedisDataStoreClient) AddDagRun(ctx context.Context, dag *core.DAG, sch
 	}
 }
 
+func (r *RedisDataStoreClient) UpdateDagRunToComplete(ctx context.Context, dag *core.DAG, schTime time.Time) {
+	dagName := dag.Name
+	_, err := r.GetClient().ZAdd(
+		ctx,
+		"dagruns:"+dagName,
+		&redis.Z{Score: float64(schTime.Unix()), Member: &core.DagRunType{schTime.Unix(), true}},
+	).Result()
+	if err != nil {
+		panic(err)
+	}
+}
+
 func (r *RedisDataStoreClient) GetAllDags(ctx context.Context) chan *core.DAG {
 	allDagsChan := make(chan *core.DAG)
 	go func() {
@@ -149,7 +161,6 @@ func (r *RedisDataStoreClient) GetAllDags(ctx context.Context) chan *core.DAG {
 			panic(err)
 		}
 		for _, dag := range val {
-			println(dag)
 			allDagsChan <- r.getDagFromStr(ctx, dag)
 		}
 		close(allDagsChan)
