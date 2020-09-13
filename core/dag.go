@@ -39,6 +39,10 @@ func (dag *DAG) GetTasks() map[string]TaskInterface {
 	return dag.tasks
 }
 
+func (dag *DAG) SetTasks(tasks map[string]TaskInterface) {
+	dag.tasks = tasks
+}
+
 func (dag *DAG) DetectCycles() error {
 	unvisitedSet := make(map[string]struct{})
 	visitingSet := make(map[string]struct{})
@@ -136,6 +140,7 @@ func (dag *DAG) detectCycleDFS(nextEl string, unvisitedSet, visitingSet, visited
 // TopologicalSortedTasks : Modify this so that it sends out new tasks in
 // a channel on updates of finished tasks from a channel received in function param.
 func (dag *DAG) TopologicalSortedTasks() chan TaskInterface {
+	// fmt.Println(dag.tasks)
 	if err := dag.DetectCycles(); err != nil {
 		panic("Cannot do TopologicalSort, dag has a cycle.")
 	}

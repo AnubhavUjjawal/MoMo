@@ -3,6 +3,9 @@ package main
 import (
 	"flag"
 	"os"
+	"reflect"
+
+	"github.com/AnubhavUjjawal/MoMo/operators"
 
 	"github.com/AnubhavUjjawal/MoMo/worker"
 
@@ -13,7 +16,19 @@ import (
 	"github.com/AnubhavUjjawal/MoMo/scheduler"
 )
 
+func registerOperators() {
+	// TODO: Refactor this.
+	// TODO: Allow custom operators via plugins
+	bashOp := &operators.BashOperator{}
+	baseTask := &core.BaseTask{}
+	core.OperatorsRegistry[bashOp.GetRegistryName()] = reflect.TypeOf(*bashOp)
+	core.OperatorsRegistry[baseTask.GetRegistryName()] = reflect.TypeOf(*baseTask)
+
+	// fmt.Println(core.OperatorsRegistry)
+}
+
 func main() {
+	registerOperators()
 	sugar := logger.GetSugaredLogger()
 	sugar.Info("Starting MoMo 😽😺: A Workflow management platform inspired by Apache Airflow!")
 

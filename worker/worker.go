@@ -36,6 +36,7 @@ func executeTask(taskInstanceChan <-chan *taskInstanceMessage) {
 		tim.ti.State = core.TASK_RUNNING
 		storeClient.AddOrUpdateTaskInstance(context.TODO(), tim.ti, dag)
 		// Execute task here.
+		dag.GetTasks()[tim.ti.TaskName].Run()
 		// Move task instance to completed.
 		tim.ti.State = core.TASK_COMPLETED
 		storeClient.AddOrUpdateTaskInstance(context.TODO(), tim.ti, dag)

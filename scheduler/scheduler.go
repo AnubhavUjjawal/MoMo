@@ -197,6 +197,7 @@ func (sch *Scheduler) scheduleTasks() {
 					executedTasks[name] = task
 				}
 			}
+			// fmt.Println(dag.TopologicalSortedTasks())
 			for task := range dag.TopologicalSortedTasks() {
 				if _, ok := executedTasks[task.GetName()]; !ok {
 					// check if all downstream are successfull

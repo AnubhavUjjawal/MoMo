@@ -20,6 +20,7 @@ type TaskInterface interface {
 	MarshalJSON() ([]byte, error)
 	// Void does nothing. Call this method to silence errors on tasks in dags.
 	Void()
+	Run()
 }
 
 type taskState int8
@@ -61,11 +62,21 @@ type BaseTask struct {
 	upstream map[string]struct{}
 	// downstream tasks are those which the current task is dependent
 	downstream map[string]struct{}
+	taskType   string
 }
 
 // Void does nothing. However this method is necessary to fill the voids in our
 // DAGs.
 func (task *BaseTask) Void() {}
+
+func (task *BaseTask) Run() {
+	fmt.Println("Running base task")
+}
+
+func (task *BaseTask) GetRegistryName() string {
+	// return reflect.TypeOf(op)
+	return "BaseTask"
+}
 
 func (task *BaseTask) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
@@ -74,24 +85,51 @@ func (task *BaseTask) MarshalJSON() ([]byte, error) {
 		"kwargs":      task.GetKwargs(),
 		"upstream":    task.GetUpstream(),
 		"downstream":  task.GetDownstream(),
-		"type":        reflect.TypeOf(task).String(),
-		"pkgpath":     reflect.TypeOf(task).PkgPath(),
+		"type":        task.taskType,
 	})
+}
+
+func Invoke(any reflect.Value, name string, args ...interface{}) {
+	inputs := make([]reflect.Value, len(args))
+	for i := range args {
+		inputs[i] = reflect.ValueOf(args[i])
+	}
+	any.MethodByName(name).Call(inputs)
 }
 
 // UnmarhsaledJSONtoTask converts output of MarshalJSON() to a task. Make sure
 // to add the task to the passed dag.tasks as well.
 func UnmarhsaledJSONtoTask(taskData map[string]interface{}, dag *DAG) {
+	// add recover here, as not setting type properly leads to panic
 	// TODO: Allow other Tasks by plugins.
 	// TODO: This method needs rework.
 	// TODO: Use PkgPath along with type in switch to accurately recreate struct.
-	newTask := &BaseTask{
-		name:        taskData["name"].(string),
-		description: taskData["description"].(string),
-		kwargs:      Dict(taskData["kwargs"].(map[string]interface{})),
-		dag:         dag,
-	}
-	dag.tasks[newTask.GetName()] = newTask
+	// reflect.TypeOf("x").ConvertibleTo()
+	// fmt.Println(OperatorsRegistry[taskData["type"].(string)])
+	newTask := reflect.New(OperatorsRegistry[taskData["type"].(string)])
+	// fmt.Println(newTask.Type(), "yooyoy")
+	Invoke(newTask, "SetName", taskData["name"].(string))
+	Invoke(newTask, "SetDescription", taskData["description"].(string))
+	Invoke(newTask, "SetKwargs", Dict(taskData["kwargs"].(map[string]interface{})))
+	Invoke(newTask, "SetDag", dag)
+	Invoke(newTask, "SetTaskType", taskData["type"].(string))
+	// fmt.Println(newTask.MethodByName("GetName").Call([]reflect.Value{}))
+	// newTask := &BaseTask{
+	// 	name:        taskData["name"].(string),
+	// 	description: taskData["description"].(string),
+	// 	kwargs:      Dict(taskData["kwargs"].(map[string]interface{})),
+	// 	dag:         dag,
+	// }
+	// dag.tasks[newTask.GetName()] = newTask.(TaskInterface)
+	// typeOfOp := OperatorsRegistry[taskData["type"].(string)]
+	// newTask.Interface().(typeOfOp)
+	// newTask.FieldByName("name").SetString(taskData["name"].(string))
+	// newTask.FieldByName("description").SetString(taskData["description"].(string))
+	// newTask.FieldByName("kwargs").Set(reflect.ValueOf(Dict(taskData["kwargs"].(map[string]interface{}))))
+	// newTask.FieldByName("dag").Set(reflect.ValueOf(dag))
+	// name := []reflect.ValueOf()
+	// newTask.MethodByName("SetName").Call({reflect.ValueOf(taskData["name"].(string))})
+	dag.tasks[taskData["name"].(string)] = newTask.Interface().(TaskInterface)
 }
 
 func (task *BaseTask) AddUpstream(sibling TaskInterface) {
@@ -132,6 +170,32 @@ func (task *BaseTask) GetDag() *DAG           { return task.dag }
 func (task *BaseTask) GetKwargs() Dict        { return task.kwargs }
 func (task *BaseTask) String() string         { return task.GetName() }
 
+func (task *BaseTask) SetName(name string) {
+	// fmt.Println("here")
+	task.name = name
+}
+func (task *BaseTask) SetDescription(description string) {
+	task.description = description
+}
+func (task *BaseTask) SetDag(dag *DAG) {
+	task.dag = dag
+}
+func (task *BaseTask) SetKwargs(kwargs Dict) {
+	task.kwargs = kwargs
+}
+func (task *BaseTask) SetTaskType(taskType string) {
+	task.taskType = taskType
+}
+
+// Only for Operators which inherit BaseTask.
+func (task *BaseTask) SetMetadata(name string, description string, dag *DAG, kwargs Dict, taskType string) {
+	task.name = name
+	task.description = description
+	task.dag = dag
+	task.kwargs = kwargs
+	task.taskType = taskType
+}
+
 func NewTask(name string, description string, dag *DAG, kwargs Dict) (TaskInterface, error) {
 	if dag.tasks == nil {
 		dag.tasks = make(map[string]TaskInterface)
@@ -146,6 +210,11 @@ func NewTask(name string, description string, dag *DAG, kwargs Dict) (TaskInterf
 		description: description,
 		dag:         dag,
 		kwargs:      kwargs}
+	newTask.taskType = newTask.GetRegistryName()
 	dag.tasks[newTask.GetName()] = &newTask
 	return &newTask, nil
 }
+
+// func (task *BaseTask) NewTask()
+
+var OperatorsRegistry map[string]reflect.Type = map[string]reflect.Type{}
