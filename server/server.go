@@ -3,9 +3,10 @@ package server
 import (
 	"flag"
 
+	"github.com/AnubhavUjjawal/MoMo/logger"
+
 	"github.com/AnubhavUjjawal/MoMo/core"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 type serverCommand struct {
@@ -13,10 +14,10 @@ type serverCommand struct {
 }
 
 // RunCommand parses the flags starts the Server.
-func (sch *serverCommand) RunCommand(logger *zap.SugaredLogger) error {
+func (sch *serverCommand) RunCommand() error {
 	// TODO: parse flags before starting Server
-
-	logger.Infow("Starting Server")
+	sugar := logger.GetSugaredLogger()
+	sugar.Infow("Starting Server")
 	r := gin.Default()
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
